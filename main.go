@@ -43,17 +43,15 @@ func curl() {
       }
 
       resp, err := http.Get(each_ln)
-
-      second := time.Now().UnixNano()
-      diff := (second - first) / 1000000
-
       if err != nil {
         fmt.Println("Err:", err)
         fmt.Println("Resp:", resp)
         temp_result = append(temp_result, fmt.Sprint("mini_goga_time{url=\"", each_ln, "\",error_msg=\"", err,"\",error=\"1\"} 100000 \n" ))
       } else {
-        temp_result = append(temp_result, fmt.Sprint("mini_goga_time{url=\"", each_ln, "\",code=\"", resp.StatusCode, "\",error=\"", query_err, "\"} ", diff, "\n" ))
         defer resp.Body.Close()
+        second := time.Now().UnixNano()
+        diff := (second - first) / 1000000
+        temp_result = append(temp_result, fmt.Sprint("mini_goga_time{url=\"", each_ln, "\",code=\"", resp.StatusCode, "\",error=\"", query_err, "\"} ", diff, "\n" ))
       }
 
       if debug_mode != 0 {
