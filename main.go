@@ -30,18 +30,6 @@ func curl() {
     for _, each_ln := range string_url {
       first := time.Now().UnixNano()
 
-      req, err := http.NewRequest("GET", each_ln , nil)
-      if err != nil {
-//        query_err := 1
-        temp_result = append(temp_result, fmt.Sprint("mini_goga_time{url=\"", each_ln, "\",error_msg=\"", err,"\",error=\"1\"} 100000 \n" ))
-      }
-
-      req.Header.Set("User-Agent", "flant internal curl exporter")
-
-      if debug_mode > 0 {
-        fmt.Println("Request: ", req, "\n")
-      }
-
       resp, err := http.Get(each_ln)
       if err != nil {
         fmt.Println("Err:", err)
