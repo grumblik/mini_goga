@@ -32,6 +32,7 @@ Specify the file location with the `CONFIG` environment variable.
 **Example `config.cfg`:**
 
 ```https://weurwiueyruweyriwueyriwuer.ru
+http://www.google.com
 http://www.google.com:80
 https://flant.com:443
 http://localhost:9190
