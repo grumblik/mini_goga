@@ -1,0 +1,11 @@
+.git
+.github
+Dockerfile
+README.md
+LICENSE
+**/*.md
+**/*.log
+bin/
+dist/
+out/
+vendor/
