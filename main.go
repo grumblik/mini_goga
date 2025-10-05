@@ -21,7 +21,7 @@ import (
 )
 
 var (
-        version = "dev"
+	version  = "dev"
 	cfgPath  string
 	port     string
 	interval time.Duration
