@@ -1,0 +1,107 @@
+name: Release Binaries
+
+on:
+  push:
+    tags: [ "v*" ]
+  pull_request:
+    branches: [ "main","master" ]
+    types: [ opened, synchronize, reopened ]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+env:
+  APP_NAME: mini_goga
+  GO_VERSION: "1.23.x"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux, darwin, windows]
+        goarch: [amd64, arm64]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Tidy
+        run: go mod tidy
+
+      - name: Build matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME:-pr}"
+          OUT_DIR="dist"
+          mkdir -p "${OUT_DIR}"
+
+          BIN="${APP_NAME}_${{ matrix.goos }}_${{ matrix.goarch }}"
+          EXT=""
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            EXT=".exe"
+          fi
+
+          export CGO_ENABLED=0
+          export GOOS=${{ matrix.goos }}
+          export GOARCH=${{ matrix.goarch }}
+
+          go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o "${OUT_DIR}/${BIN}${EXT}" .
+
+          pushd "${OUT_DIR}" >/dev/null
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            ARCHIVE="${BIN}.zip"
+            zip -9 "${ARCHIVE}" "${BIN}${EXT}"
+          else
+            ARCHIVE="${BIN}.tar.gz"
+            tar -czf "${ARCHIVE}" "${BIN}${EXT}"
+          fi
+
+          sha256sum "${BIN}${EXT}" > "${BIN}.sha256"
+          sha256sum "${ARCHIVE}" > "${ARCHIVE}.sha256"
+          popd >/dev/null
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            dist/${{ env.APP_NAME }}_${{ matrix.goos }}_${{ matrix.goarch }}*
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist_all
+
+      - name: Create checksums index (optional)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist_all
+          find . -type f -name "*.sha256" -print0 | xargs -0 cat > ALL_SHA256SUMS.txt
+          find . -type f \( -name "*.tar.gz" -o -name "*.zip" \) > RELEASE_FILES.txt || true
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist_all/**/*.tar.gz
+            dist_all/**/*.zip
+            dist_all/**/*.sha256
+            dist_all/ALL_SHA256SUMS.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
