@@ -21,7 +21,7 @@ import (
 )
 
 var (
-        version = "dev"
+	version  = "dev"
 	cfgPath  string
 	port     string
 	interval time.Duration
@@ -222,10 +222,11 @@ func main() {
 	defer cancel()
 	go runProbes(ctx, targets)
 
-	log.Printf("mini_goga listening on :%s, scraping %d targets every %s", port, len(targets), interval)
+	log.Printf("mini_goga listening on :%s, scraping %d targets every %s, version=%s", port, len(targets), interval, version)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("http server: %v", err)
 	}
+
 	<-idleConns
 	log.Println("shutdown complete")
 }
