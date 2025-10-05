@@ -13,7 +13,7 @@ permissions:
 
 env:
   APP_NAME: mini_goga
-  GO_VERSION: "1.23.x"
+  GO_VERSION: "1.25.x"
 
 jobs:
   build:
