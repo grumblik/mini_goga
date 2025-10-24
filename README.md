@@ -31,7 +31,8 @@ Specify the file location with the `CONFIG` environment variable.
 
 **Example `config.cfg`:**
 
-```https://weurwiueyruweyriwueyriwuer.ru
+```
+https://weurwiueyruweyriwueyriwuer.ru
 http://www.google.com
 http://www.google.com:80
 https://flant.com:443
@@ -44,19 +45,21 @@ http://127.0.0.1
 
 ## Running
 
-By default, the exporter listens on **port 9190**.  
+By default, the exporter listens on **port 9100**.  
 
 ### Docker
 
 ```bash
 docker run -d \
-  -p 9190:9190 \
+  -p 9100:9100 \
   -v $(pwd)/config.cfg:/config.cfg \
   -e CONFIG=/config.cfg \
-  ghcr.io/grumblik/mini_goga:latest
+  docker.io/grumblik/mini_goga:latest
 ```
 
-** Example metric output
+## 📊 Metrics
+
+**Example metric output**
 ```
 mini_goga_target_up{url="http://www.google.com:80"} 1
 mini_goga_target_response_ms{url="http://www.google.com:80"} 385
@@ -70,20 +73,25 @@ mini_goga_scrape_errors_total{url="http://www.google.com:80"} 0
 - mini_goga_scrape_errors_total – cumulative scrape errors
 - mini_goga_last_success_timestamp – Unix timestamp of the last successful check
 
-| Variable   | Default      | Description                       |
-| ---------- | ------------ | --------------------------------- |
-| `CONFIG`   | `config.cfg` | Path to the file with target URLs |
-| `PORT`     | `9190`       | Listening port                    |
-| `INTERVAL` | `15s`        | Interval between checks           |
-| `TIMEOUT`  | `15s`        | Per-request timeout               |
+## 🔧 Environment Variables
 
-```
+| Variable      | Default      | Description                       |
+| ------------- | ------------ | --------------------------------- |
+| `CONFIG`      | `config.cfg` | Path to the file with target URLs |
+| `SERVER_PORT` | `9100`       | Listening port                    |
+| `INTERVAL`    | `15s`        | Interval between checks           |
+| `TIMEOUT`     | `15s`        | Per-request timeout               |
+
+## 🛠️ Building from Source
+
+```bash
 git clone https://github.com/grumblik/mini_goga.git
 cd mini_goga
 go build -o mini_goga .
 ./mini_goga
 ```
-📜 License
+
+## 📜 License
 MIT
 
-✨ Simple. Minimal. Reliable. That’s mini_goga.
+✨ Simple. Minimal. Reliable. That's mini_goga.
