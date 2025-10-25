@@ -124,9 +124,50 @@ mini_goga_scrape_errors_total{url="http://www.google.com:80"} 0
 | Variable      | Default      | Description                       |
 | ------------- | ------------ | --------------------------------- |
 | `CONFIG`      | `config.cfg` | Path to the file with target URLs |
+| `SERVER_HOST` | `0.0.0.0`    | Server host to listen on (default: 0.0.0.0) |
 | `SERVER_PORT` | `9100`       | Listening port                    |
 | `INTERVAL`    | `15s`        | Interval between checks           |
 | `TIMEOUT`     | `15s`        | Per-request timeout               |
+| `METRICS_AUTH`| ``           | Basic auth for metrics (user:pass) |
+| `ALLOWED_PORTS`| `80;443`    | Allowed ports separated by semicolon (default: 80;443) |
+| `MAX_RESPONSE_SIZE`| `2048`  | Maximum response body size in bytes (default: 2KB) |
+
+## 🔒 Security Features
+
+- **URL Validation**: Blocks private IPs, localhost, and metadata endpoints
+- **SSRF Protection**: Prevents Server-Side Request Forgery attacks
+- **Response Size Limits**: 1MB limit to prevent DoS attacks
+- **Basic Authentication**: Optional auth for metrics endpoint
+- **Security Headers**: Proper User-Agent and Accept headers
+- **Port Whitelist**: Only allows HTTP (80) and HTTPS (443) ports by default
+
+### Security Configuration
+
+```bash
+# Enable metrics authentication
+export METRICS_AUTH="admin:secure_password"
+
+# Customize allowed ports (optional)
+export ALLOWED_PORTS="80;443;8080;8443"
+
+# Run with security features
+docker run -d \
+  -p 127.0.0.1:9100:9100 \
+  -v $(pwd)/config.cfg:/config.cfg \
+  -e CONFIG=/config.cfg \
+  -e SERVER_HOST="127.0.0.1" \
+  -e METRICS_AUTH="admin:secure_password" \
+  -e ALLOWED_PORTS="80;443;8080;8443" \
+  grumblik/mini_goga:latest
+```
+
+### Default Allowed Ports
+
+If `ALLOWED_PORTS` is not set, only the following ports are allowed by default:
+- **HTTP**: 80
+- **HTTPS**: 443
+
+This whitelist approach is much more secure than blacklisting ports, as it only allows what you explicitly need.
 
 ## 🔧 Troubleshooting
 
@@ -144,6 +185,16 @@ mini_goga_scrape_errors_total{url="http://www.google.com:80"} 0
 **Connection timeouts?**
 - Increase the `TIMEOUT` environment variable
 - Check network connectivity to targets
+
+**URL blocked due to port restrictions?**
+- Check if the port is in the allowed list
+- Customize `ALLOWED_PORTS` environment variable if needed
+- Add the required port to `ALLOWED_PORTS` (e.g., `ALLOWED_PORTS="80;443;8080"`)
+
+**Server not accessible from outside?**
+- Check `SERVER_HOST` setting (default: 0.0.0.0 for all interfaces)
+- Use `SERVER_HOST="127.0.0.1"` for localhost only
+- Use `SERVER_HOST="0.0.0.0"` for external access
 
 ## 🛠️ Building from Source
 

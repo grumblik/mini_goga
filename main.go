@@ -4,10 +4,12 @@ import (
 	"bufio"
 	"context"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
@@ -24,8 +26,12 @@ var (
 	version  = "dev"
 	cfgPath  string
 	port     string
+	serverHost string
 	interval time.Duration
 	timeout  time.Duration
+	metricsAuth string
+	allowedPorts string
+	maxResponseSize int64
 
 	httpClient *http.Client
 
@@ -53,9 +59,13 @@ var (
 
 func init() {
 	flag.StringVar(&cfgPath, "config", getenv("CONFIG", "config.cfg"), "path to targets file")
+	flag.StringVar(&serverHost, "server-host", getenv("SERVER_HOST", "0.0.0.0"), "server host to listen on (default: 0.0.0.0)")
 	flag.StringVar(&port, "port", getenv("SERVER_PORT", "9100"), "listen port")
 	flag.DurationVar(&interval, "interval", getdur("INTERVAL", 15*time.Second), "probe interval")
 	flag.DurationVar(&timeout, "timeout", getdur("TIMEOUT", 15*time.Second), "request timeout")
+	flag.StringVar(&metricsAuth, "metrics-auth", getenv("METRICS_AUTH", ""), "basic auth for metrics endpoint (user:pass)")
+	flag.StringVar(&allowedPorts, "allowed-ports", getenv("ALLOWED_PORTS", "80;443"), "allowed ports separated by semicolon (default: 80;443)")
+	flag.Int64Var(&maxResponseSize, "max-response-size", getint64("MAX_RESPONSE_SIZE", 2*1024), "maximum response body size in bytes (default: 2KB)")
 }
 
 func getenv(k, def string) string {
@@ -71,6 +81,98 @@ func getdur(env string, def time.Duration) time.Duration {
 		}
 	}
 	return def
+}
+
+func getint64(env string, def int64) int64 {
+	if v := os.Getenv(env); v != "" {
+		if i, err := strconv.ParseInt(v, 10, 64); err == nil {
+			return i
+		}
+	}
+	return def
+}
+
+// validateURL checks if URL is safe for monitoring
+func validateURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return err
+	}
+
+	// Only allow HTTP and HTTPS schemes
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("unsupported scheme: %s", u.Scheme)
+	}
+
+	// Block private IP ranges and localhost
+	host := u.Hostname()
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+		return fmt.Errorf("localhost access not allowed")
+	}
+
+	// Block private IP ranges
+	ip := net.ParseIP(host)
+	if ip != nil {
+		if ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
+			return fmt.Errorf("private IP access not allowed: %s", host)
+		}
+	}
+
+	// Block common metadata endpoints
+	if strings.Contains(host, "169.254.169.254") || strings.Contains(host, "metadata.google.internal") {
+		return fmt.Errorf("metadata endpoint access not allowed")
+	}
+
+	// Allow only whitelisted ports - use environment variable or default list
+	port := u.Port()
+	if port != "" {
+		var allowedPortsList []string
+		
+		if allowedPorts != "" {
+			// Use custom allowed ports from environment variable
+			allowedPortsList = strings.Split(allowedPorts, ";")
+		} else {
+			// Use default allowed ports (HTTP and HTTPS only)
+			allowedPortsList = []string{"80", "443"}
+		}
+		
+		// Check if port is in allowed list
+		portAllowed := false
+		for _, allowedPort := range allowedPortsList {
+			allowedPort = strings.TrimSpace(allowedPort)
+			if allowedPort != "" && port == allowedPort {
+				portAllowed = true
+				break
+			}
+		}
+		
+		if !portAllowed {
+			return fmt.Errorf("port %s not in allowed list. Allowed ports: %s", port, allowedPorts)
+		}
+	}
+
+	return nil
+}
+
+// authMiddleware provides basic authentication for metrics endpoint
+func authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if metricsAuth == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		
+		user, pass, ok := r.BasicAuth()
+		expectedUser, expectedPass, _ := strings.Cut(metricsAuth, ":")
+		
+		if !ok || user != expectedUser || pass != expectedPass {
+			w.Header().Set("WWW-Authenticate", `Basic realm="mini_goga"`)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		
+		next.ServeHTTP(w, r)
+	})
 }
 
 func buildHTTPClient(timeout time.Duration) *http.Client {
@@ -103,11 +205,20 @@ func readTargets(path string) ([]string, error) {
 
 	var out []string
 	sc := bufio.NewScanner(f)
+	lineNum := 0
 	for sc.Scan() {
+		lineNum++
 		line := strings.TrimSpace(sc.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
+		
+		// Validate URL for security
+		if err := validateURL(line); err != nil {
+			log.Printf("WARNING: Skipping invalid URL on line %d: %s - %v", lineNum, line, err)
+			continue
+		}
+		
 		out = append(out, line)
 	}
 	return out, sc.Err()
@@ -119,13 +230,20 @@ func probeOne(ctx context.Context, url string) (status int, ms int64, err error)
 		return 0, 0, err
 	}
 
+	// Add security headers
+	req.Header.Set("User-Agent", "mini_goga/1.0")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+
 	start := time.Now()
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return 0, 0, err
 	}
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
+	
+	// Limit response body size to prevent DoS
+	limitedReader := io.LimitReader(resp.Body, maxResponseSize)
+	_, _ = io.Copy(io.Discard, limitedReader)
 
 	elapsed := time.Since(start).Milliseconds()
 	return resp.StatusCode, elapsed, nil
@@ -195,14 +313,14 @@ func main() {
 	prometheus.MustRegister(targetUp, targetRespMS, targetStatusCode, scrapeErrors, lastSuccessTS)
 
 	mux := http.NewServeMux()
-	mux.Handle("/metrics", promhttp.Handler())
+	mux.Handle("/metrics", authMiddleware(promhttp.Handler()))
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
 
 	srv := &http.Server{
-		Addr:              ":" + port,
+		Addr:              serverHost + ":" + port,
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
